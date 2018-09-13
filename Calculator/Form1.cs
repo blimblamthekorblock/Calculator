@@ -19,17 +19,61 @@ namespace Calculator
 
         private enum Operation
         {
-            None,
+            Nul,
             Add,
-            Substract,
-            Multiply,
-            Divide,
+            Sub,
+            Mul,
+            Div,
         }
 
         private enum ItemType
         {
-            Number,
+            Integrals,
             Operation,
+        }
+
+        private class CalcItem
+        {
+            public int ID; // item order in the line
+            public ItemType Type; // number or operation
+            public Operation Op; // add, substract, etc
+            public char OpByte;
+            public ulong Number; // value for numbers
+        }
+
+        private void Log(string input)
+        {
+            if (debugWriteConsole)
+                Console.WriteLine(input);
+            richTextBox_log.Text = $"{richTextBox_log.Text}\n{input}"; // just for logging
+
+            CsvQueue1.Add(input); // used to dump logs to a text file
+        }
+
+        private void CsvWrite(List<string> lines, string filename)
+        {
+            using (var writer = new StreamWriter(filename))
+                foreach (var line in lines)
+                    writer.WriteLine(line);
+        }
+
+        private void button_clearTextBoxes(object sender, EventArgs e)
+        {
+            richTextBox_left.Text = "";
+            richTextBox_right.Text = "";
+            richTextBox_log.Text = "";
+        }
+
+        private void button_dumpLogs(object sender, EventArgs e)
+        {
+            CsvWrite(CsvQueue1, "output.log");
+        }
+
+        private void richTextBox_TextChanged(object sender, EventArgs e)
+        {
+            // always scroll the box to the bottom
+            richTextBox_log.SelectionStart = richTextBox_log.Text.Length;
+            richTextBox_log.ScrollToCaret();
         }
 
         public Form1()
@@ -62,12 +106,16 @@ namespace Calculator
             if (!ValidCharacters.ValidChars_all.Contains((byte)c))
             {
                 e.Handled = true;
-                Log($"ERROR: unsupported key: {e.KeyChar}");
+                // Log($"ERROR: unsupported key: {e.KeyChar}");
             }
+
+            var tempText_left = richTextBox_left.Text;
+            var tempText_right = richTextBox_right.Text;
 
             if (e.KeyChar == 0x0D) // seems to be useless
             {
                 e.Handled = true;
+
                 richtextbox = ParseLines(richtextbox);
             }
         }
@@ -113,61 +161,20 @@ namespace Calculator
 
             foreach (var a in lineItems)
             {
-                Log($"Line Item: " + 
-                    $"{a.ID}, " + 
-                    $"{a.Type}, " +
-                    $"{a.Op}, " +
-                    $"{a.OpByte}, " +
-                    $"{a.Number}, " +
-                    $"");
+                var output = $"Line Item: " +
+                    $"ID {a.ID}, " +
+                    $"Type {a.Type}, " +
+                    $"OP {a.Op}, " +
+                    $"Val {a.Number:X16}, " +
+                    $"";
+
+                Log(output);
             }
             // ParseLine(lines[lines.Length - 2]); 
 
+            DoOperations(lineItems);
+
             return textfile;
-        }
-
-        private void Log(string input)
-        {
-            if (debugWriteConsole)
-                Console.WriteLine(input);
-            richTextBox_log.Text = $"{richTextBox_log.Text}\n{input}"; // just for logging
-
-            CsvQueue1.Add(input); // used to dump logs to a text file
-        }
-
-        private void CsvWrite(List<string> lines, string filename)
-        {
-            using (var writer = new StreamWriter(filename))
-                foreach (var line in lines)
-                    writer.WriteLine(line);
-        }
-
-        private void button_clearTextBoxes(object sender, EventArgs e)
-        {
-            richTextBox_left.Text = "";
-            richTextBox_right.Text = "";
-            richTextBox_log.Text = "";
-        }
-
-        private void button_dumpLogs(object sender, EventArgs e)
-        {
-            CsvWrite(CsvQueue1, "output.log");
-        }
-
-        private void richTextBox_TextChanged(object sender, EventArgs e)
-        {
-            // always scroll the box to the bottom
-            richTextBox_log.SelectionStart = richTextBox_log.Text.Length;
-            richTextBox_log.ScrollToCaret();
-        }
-
-        private class CalcItem
-        {
-            public int ID; // item order in the line
-            public ItemType Type; // number or operation
-            public Operation Op; // add, substract, etc
-            public char OpByte;
-            public ulong Number; // value for numbers
         }
 
         private List<CalcItem> SplitLine(string line)
@@ -207,7 +214,14 @@ namespace Calculator
                     convertedVal = 0;
                     ulong.TryParse(d, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out convertedVal);
                     // Log($"Parsed: {d}: 0x{convertedVal:X16}, {convertedVal:X16}");
-                    items.Add(new CalcItem { ID = items_temp.Count - 1, Type = ItemType.Number, Number = convertedVal, Op = Operation.None, OpByte = (char)0x0 });
+                    items.Add(new CalcItem
+                    {
+                        ID = items_temp.Count - 1,
+                        Type = ItemType.Integrals,
+                        Number = convertedVal,
+                        Op = Operation.Nul,
+                        OpByte = (char)0x0
+                    });
 
                     // reset current chars list
                     charsQueue = new List<char>();
@@ -218,22 +232,22 @@ namespace Calculator
                     // reset current chars list since operators should be only one char long
                     charsQueue = new List<char>();
 
-                    var op = Operation.None;
+                    var op = Operation.Nul;
                     switch ((byte)chars[i])
                     {
-                        case 0x2A: op = Operation.Multiply; break;
+                        case 0x2A: op = Operation.Mul; break;
                         case 0x2B: op = Operation.Add; break;
-                        case 0x2F: op = Operation.Divide; break;
-                        case 0x2D: op = Operation.Substract; break;
+                        case 0x2F: op = Operation.Div; break;
+                        case 0x2D: op = Operation.Sub; break;
                     }
 
                     items.Add(new CalcItem
                     {
-                        ID = items_temp.Count-1,
+                        ID = items_temp.Count - 1,
                         Type = ItemType.Operation,
                         Op = op,
                         OpByte = chars[i],
-                        Number = ulong.MaxValue,
+                        Number = 0,
                     });
 
                     continue;
@@ -250,14 +264,21 @@ namespace Calculator
             // assuming no op was found, or there's a space, or end of line, add the current chars queue
             items_temp.Add(charsQueue);
 
-             d = "";
+            d = "";
             foreach (var a in charsQueue)
                 d = $"{d}{a}";
             convertedVal = 0;
             ulong.TryParse(d, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out convertedVal);
             // Log($"Parsed: {d}: 0x{convertedVal:X16}, {convertedVal:X16}");
-            items.Add(new CalcItem { ID = items_temp.Count - 1, Type = ItemType.Number, Number = convertedVal, Op = Operation.None, OpByte = (char)0x0 });
-           
+            items.Add(new CalcItem
+            {
+                ID = items_temp.Count - 1,
+                Type = ItemType.Integrals,
+                Number = convertedVal,
+                Op = Operation.Nul,
+                OpByte = (char)0x0
+            });
+
             // reset current chars list
             charsQueue = new List<char>();
 
@@ -279,111 +300,42 @@ namespace Calculator
             return items;
         }
 
-        private void ParseLine(string line)
+        private void DoOperations(List<CalcItem> lineItems)
         {
-            // Log($"DEBUG: Exec: ParseCalc({line})");
+            // Hardcode to only detect addition between 2 numbers for now.
+            ulong nr1 = 0;
+            ulong nr2 = 0;
+            var op1 = Operation.Add;
 
-            var chars = line.ToCharArray();
-            // Log($"DEBUG: chars.Length = {chars.Length}");
+            if (lineItems.Count > 0)
+                nr1 = lineItems[0].Number;
 
-            foreach (var char_ in chars)
+            // maybe it shouldn't be like this
+            ulong result = nr1;
+
+            if (lineItems.Count == 3)
             {
-                if (!ValidCharacters.ValidChars_all.Contains((byte)char_))
-                {
-                    // Log($"ERROR: line contains invalid characters: {char_}");
-                    // Log($"ERROR: missing valid character: {char_} 0x{(byte)char_:X2}");
-                    return;
-                }
+                nr1 = lineItems[0].Number;
+                op1 = lineItems[1].Op;
+                nr2 = lineItems[2].Number;
+
+                if (op1 == Operation.Add)
+                    result = nr1 + nr2;
             }
 
-            var items = new List<CalcItem>();
-            var lineItem = new List<char>();
+            newLine = result;
 
-            bool foundNumber = false;
-            for (int i = 0; i < chars.Length; i++)
-            {
-                if (ValidCharacters.ValidChars_ops.Contains((byte)chars[i]))
-                {
-                    var op = Operation.None;
-                    switch ((byte)chars[i])
-                    {
-                        case 0x2A:
-                            op = Operation.Multiply;
-                            break;
-                        case 0x2B:
-                            op = Operation.Add;
-                            break;
-                        case 0x2F:
-                            op = Operation.Divide;
-                            break;
-                        case 0x2D:
-                            op = Operation.Substract;
-                            break;
-                    }
-
-                    // Log($"DEBUG: new op: {op}");
-
-                    items.Add(new CalcItem { Type = ItemType.Operation, Op = op, Number = ulong.MaxValue });
-                    lineItem = new List<char>();
-                    continue;
-                }
-
-                var d = "";
-
-                if (ValidCharacters.ValidChars_numbers.Contains((byte)chars[i]))
-                {
-                    foundNumber = true;
-                    lineItem.Add(chars[i]);
-
-                    if (foundNumber)
-                    {
-                        // Log($"DEBUG: new value start: {chars[i]}");
-                        foundNumber = false;
-                    }
-
-                    if (lineItem.Count > 16) // 32 for x64
-                        throw new Exception(); // TODO: handle values longer than 64bits
-
-                    if (i == line.Length - 1)
-                    {
-                        // Log($"DEBUG: new value: {line}");
-
-                        foreach (var char_ in lineItem)
-                            d = $"{d}{char_}";
-
-                        ulong convertedVal;
-                        ulong.TryParse(d, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out convertedVal);
-                        // Log($"Parsed: {d}: 0x{convertedVal:X16}, {convertedVal:D16}");
-
-                        items.Add(new CalcItem { Type = ItemType.Number, Number = convertedVal, Op = Operation.None });
-                        lineItem = new List<char>();
-                    }
-                }
-                else
-                {
-                    foundNumber = false;
-                    foreach (var char_ in lineItem)
-                        d = $"{d}{char_}";
-
-                    ulong convertedVal;
-                    ulong.TryParse(d, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out convertedVal);
-                    // Log($"Parsed: {d}: 0x{convertedVal:X8}, {convertedVal:D8}");
-
-                    items.Add(new CalcItem { Type = ItemType.Number, Number = convertedVal, Op = Operation.None });
-                    lineItem = new List<char>();
-                }
-
-                var j = -1;
-                foreach (var item in items)
-                {
-                    j++;
-                    // Log($"Item: {j}: {item.Type}, {item.Number}, {item.Op}");
-                }
-            }
+            UpdateTextBoxes(richTextBox_left, $"\n{newLine:D16}");
+            UpdateTextBoxes(richTextBox_right, $"\n{newLine:X16}");
         }
 
-        private void ParseLine2(List<string> lines)
+        private ulong newLine = 0;
+
+        private void UpdateTextBoxes(RichTextBox richTextBox, string additional)
         {
+            richTextBox.Text = $"{richTextBox.Text}{additional}\n";
+            richTextBox.SelectionStart = richTextBox.Text.Length;
+            richTextBox.ScrollToCaret();
         }
     }
 }
