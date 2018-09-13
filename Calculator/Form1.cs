@@ -15,31 +15,7 @@ namespace Calculator
     public partial class Form1 : Form
     {
         public List<string> CsvQueue1 = new List<string>();
-        public bool debugWriteConsole = true;
-
-        private enum Operation
-        {
-            Nul,
-            Add,
-            Sub,
-            Mul,
-            Div,
-        }
-
-        private enum ItemType
-        {
-            Integrals,
-            Operation,
-        }
-
-        private class CalcItem
-        {
-            public int ID; // item order in the line
-            public ItemType Type; // number or operation
-            public Operation Op; // add, substract, etc
-            public char OpByte;
-            public ulong Number; // value for numbers
-        }
+        public bool debugWriteConsole = false;
 
         private void Log(string input)
         {
@@ -59,8 +35,8 @@ namespace Calculator
 
         private void button_clearTextBoxes(object sender, EventArgs e)
         {
-            richTextBox_left.Text = "";
-            richTextBox_right.Text = "";
+            richTextBox_dec.Text = "";
+            richTextBox_hex.Text = "";
             richTextBox_log.Text = "";
         }
 
@@ -74,90 +50,74 @@ namespace Calculator
             // always scroll the box to the bottom
             richTextBox_log.SelectionStart = richTextBox_log.Text.Length;
             richTextBox_log.ScrollToCaret();
+            richTextBox_log.ScrollToCaret();
         }
 
         public Form1()
         {
             InitializeComponent();
             richTextBox_log.ScrollToCaret();
+            richTextBox_log.ScrollToCaret();
         }
 
         private void Form1_Load(object sender, EventArgs e)
         {
-            richTextBox_left.KeyPress += new KeyPressEventHandler(richTextBox1_KeyPress);
-            richTextBox_right.KeyPress += new KeyPressEventHandler(richTextBox2_KeyPress);
+            richTextBox_dec.KeyPress += new KeyPressEventHandler(richTextBox1_KeyPress);
+            richTextBox_hex.KeyPress += new KeyPressEventHandler(richTextBox2_KeyPress);
         }
 
         void richTextBox1_KeyPress(object sender, KeyPressEventArgs e)
         {
-            ReadTextBox(e, richTextBox_left);
+            ReadTextBox(e, richTextBox_dec, Info.BoxType.Decimal);
         }
 
         void richTextBox2_KeyPress(object sender, KeyPressEventArgs e)
         {
-            ReadTextBox(e, richTextBox_right);
+            ReadTextBox(e, richTextBox_hex, Info.BoxType.Hexadecimal);
         }
 
-        private void ReadTextBox(KeyPressEventArgs e, RichTextBox richtextbox)
+        private void UpdateTextBoxes(RichTextBox richTextBox, string additional)
+        {
+            richTextBox.Text = $"{richTextBox.Text}{additional}\n";
+            richTextBox.SelectionStart = richTextBox.Text.Length;
+            richTextBox.ScrollToCaret();
+            richTextBox.ScrollToCaret();
+        }
+
+        private void ReadTextBox(KeyPressEventArgs e, RichTextBox richtextbox, Info.BoxType boxType)
         {
             var c = e.KeyChar;
 
             // Do a simple check if the line contains valid characters, 0 - 9, a - f, A - F, + - * /
-            if (!ValidCharacters.ValidChars_all.Contains((byte)c))
+            if (!Info.ValidChars_all.Contains((byte)c))
             {
                 e.Handled = true;
                 // Log($"ERROR: unsupported key: {e.KeyChar}");
             }
 
-            var tempText_left = richTextBox_left.Text;
-            var tempText_right = richTextBox_right.Text;
+            var tempText_left = richTextBox_dec.Text;
+            var tempText_right = richTextBox_hex.Text;
 
             if (e.KeyChar == 0x0D) // seems to be useless
             {
                 e.Handled = true;
 
-                richtextbox = ParseLines(richtextbox);
+                richtextbox = ParseLines(richtextbox, boxType);
             }
         }
 
-        private RichTextBox ParseLines(RichTextBox textfile)
+        private RichTextBox ParseLines(RichTextBox textfile, Info.BoxType boxType)
         {
-            // CsvAdd($"Attempting to parse: {HistPrevOperation}");
             var lines = textfile.Text.Split("\n".ToCharArray());
-
-            // var i = -1;
-            // foreach (var line in lines)
-            // {
-            //     i++;
-            //     CsvAdd($"Line {i}: {line}");
-            // }
 
             if (lines.Length == 0)
                 return textfile;
 
             // lines contains every line in the text box. Only select the second to last. Last should be a new empty line.
-            var lineItems = SplitLine(lines[lines.Length - 2]);
+            var lineItems = FindOpAndNumbers(lines[lines.Length - 2], boxType);
 
             if (lineItems.Count == 0)
                 return textfile;
-
-            // If the input is: 1000+2000*2 or 1000 + 2000 * 2
-            // Then lineItems will contain:
-            /*
-             * 1000
-             * +
-             * 2000
-             * *
-             * 2
-             * 
-             * for 1000:
-             * int ID        = 0
-             * ItemType Type = ItemType.Number
-             * Operation Op  = Operation.None
-             * char OpByte   = 0x0
-             * ulong Number  = 0x0000000000001000
-             * 
-             */
 
             foreach (var a in lineItems)
             {
@@ -170,28 +130,27 @@ namespace Calculator
 
                 Log(output);
             }
-            // ParseLine(lines[lines.Length - 2]); 
 
             DoOperations(lineItems);
 
             return textfile;
         }
 
-        private List<CalcItem> SplitLine(string line)
+        private List<Info.CalcItem> FindOpAndNumbers(string line, Info.BoxType boxType)
         {
             var chars = line.ToCharArray();
 
             foreach (var char_ in chars)
             {
-                if (!ValidCharacters.ValidChars_all.Contains((byte)char_))
+                if (!Info.ValidChars_all.Contains((byte)char_))
                 {
                     // Log($"ERROR: line contains invalid characters: {char_}");
                     // Log($"ERROR: missing valid character: {char_} {(byte)char_:X2}");
-                    return new List<CalcItem>();
+                    return new List<Info.CalcItem>();
                 }
             }
 
-            var items = new List<CalcItem>();
+            var items = new List<Info.CalcItem>();
             var charsQueue = new List<char>();
             var items_temp = new List<List<char>>();
 
@@ -201,7 +160,7 @@ namespace Calculator
             for (int i = 0; i < chars.Length; i++)
             {
                 // if it finds an operator
-                if (ValidCharacters.ValidChars_ops.Contains((byte)chars[i]))
+                if (Info.ValidChars_ops.Contains((byte)chars[i]))
                 {
                     // items_temp list = list of all items on a line, such as numbers, operators
 
@@ -212,14 +171,18 @@ namespace Calculator
                     foreach (var a in charsQueue)
                         d = $"{d}{a}";
                     convertedVal = 0;
-                    ulong.TryParse(d, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out convertedVal);
+                    if (boxType == Info.BoxType.Hexadecimal)
+                        ulong.TryParse(d, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out convertedVal);
+                    else
+                        ulong.TryParse(d, NumberStyles.Integer, CultureInfo.InvariantCulture, out convertedVal);
+
                     // Log($"Parsed: {d}: 0x{convertedVal:X16}, {convertedVal:X16}");
-                    items.Add(new CalcItem
+                    items.Add(new Info.CalcItem
                     {
                         ID = items_temp.Count - 1,
-                        Type = ItemType.Integrals,
+                        Type = Info.ItemType.Integrals,
                         Number = convertedVal,
-                        Op = Operation.Nul,
+                        Op = Info.Operation.Nul,
                         OpByte = (char)0x0
                     });
 
@@ -232,19 +195,19 @@ namespace Calculator
                     // reset current chars list since operators should be only one char long
                     charsQueue = new List<char>();
 
-                    var op = Operation.Nul;
+                    var op = Info.Operation.Nul;
                     switch ((byte)chars[i])
                     {
-                        case 0x2A: op = Operation.Mul; break;
-                        case 0x2B: op = Operation.Add; break;
-                        case 0x2F: op = Operation.Div; break;
-                        case 0x2D: op = Operation.Sub; break;
+                        case 0x2A: op = Info.Operation.Mul; break;
+                        case 0x2B: op = Info.Operation.Add; break;
+                        case 0x2F: op = Info.Operation.Div; break;
+                        case 0x2D: op = Info.Operation.Sub; break;
                     }
 
-                    items.Add(new CalcItem
+                    items.Add(new Info.CalcItem
                     {
                         ID = items_temp.Count - 1,
-                        Type = ItemType.Operation,
+                        Type = Info.ItemType.Operation,
                         Op = op,
                         OpByte = chars[i],
                         Number = 0,
@@ -253,7 +216,7 @@ namespace Calculator
                     continue;
                 }
 
-                if (ValidCharacters.ValidChars_numbers.Contains((byte)chars[i]))
+                if (Info.ValidChars_numbers.Contains((byte)chars[i]))
                 {
                     // continue adding chars if it's a number
                     charsQueue.Add(chars[i]);
@@ -268,14 +231,18 @@ namespace Calculator
             foreach (var a in charsQueue)
                 d = $"{d}{a}";
             convertedVal = 0;
-            ulong.TryParse(d, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out convertedVal);
+            if (boxType == Info.BoxType.Hexadecimal)
+                ulong.TryParse(d, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out convertedVal);
+            else
+                ulong.TryParse(d, NumberStyles.Integer, CultureInfo.InvariantCulture, out convertedVal);
+
             // Log($"Parsed: {d}: 0x{convertedVal:X16}, {convertedVal:X16}");
-            items.Add(new CalcItem
+            items.Add(new Info.CalcItem
             {
                 ID = items_temp.Count - 1,
-                Type = ItemType.Integrals,
+                Type = Info.ItemType.Integrals,
                 Number = convertedVal,
-                Op = Operation.Nul,
+                Op = Info.Operation.Nul,
                 OpByte = (char)0x0
             });
 
@@ -300,12 +267,12 @@ namespace Calculator
             return items;
         }
 
-        private void DoOperations(List<CalcItem> lineItems)
+        private void DoOperations_test(List<Info.CalcItem> lineItems)
         {
             // Hardcode to only detect addition between 2 numbers for now.
             ulong nr1 = 0;
             ulong nr2 = 0;
-            var op1 = Operation.Add;
+            var op1 = Info.Operation.Add;
 
             if (lineItems.Count > 0)
                 nr1 = lineItems[0].Number;
@@ -319,23 +286,198 @@ namespace Calculator
                 op1 = lineItems[1].Op;
                 nr2 = lineItems[2].Number;
 
-                if (op1 == Operation.Add)
+                if (op1 == Info.Operation.Add)
                     result = nr1 + nr2;
             }
 
-            newLine = result;
-
-            UpdateTextBoxes(richTextBox_left, $"\n{newLine:D16}");
-            UpdateTextBoxes(richTextBox_right, $"\n{newLine:X16}");
+            UpdateTextBoxes(richTextBox_dec, $"\n{result:D16}");
+            UpdateTextBoxes(richTextBox_hex, $"\n{result:X16}");
         }
 
-        private ulong newLine = 0;
-
-        private void UpdateTextBoxes(RichTextBox richTextBox, string additional)
+        private void DoOperations(List<Info.CalcItem> lineItems)
         {
-            richTextBox.Text = $"{richTextBox.Text}{additional}\n";
-            richTextBox.SelectionStart = richTextBox.Text.Length;
-            richTextBox.ScrollToCaret();
+            // If input is only one or more numbers, assume the user wants to convert them to hex or dec
+            if (lineItems.Find(x => x.Type == Info.ItemType.Operation) == null)
+            {
+                foreach (var a in lineItems)
+                {
+                    UpdateTextBoxes(richTextBox_dec, $"\n{a.Number:D16}");
+                    UpdateTextBoxes(richTextBox_hex, $"\n{a.Number:X16}");
+                }
+
+                return;
+            }
+
+            // If any operand was detected, attempt to calculate mul and div first, then add and sub
+            foreach (var a in lineItems)
+            {
+                // check if all operators have 2 operands
+                if (a.Type == Info.ItemType.Operation)
+                {
+                    // check if operator isn't the first item in the list
+                    if (a.ID == 0)
+                    {
+                        Log($"ERROR: operator ID {a.ID}: {a.Op} cannot be at the start of the line.");
+                        return;
+                    }
+
+                    // check if operator isn't the last item in the list
+                    if (a.ID == lineItems.Count - 1)
+                    {
+                        Log($"ERROR: operator ID {a.ID}: {a.Op} cannot be at the end of the line.");
+                        return;
+                    }
+
+                    // Check if operator doesn't have another operator next to it.
+                    if (lineItems[a.ID - 1].Type == Info.ItemType.Operation || lineItems[a.ID + 1].Type == Info.ItemType.Operation)
+                    {
+                        Log($"ERROR: operator ID {a.ID} ({a.Op}) cannot be next to another operator.");
+                        return;
+                    }
+                }
+            }
+
+
+            // keep looking for mul and div until no more are left
+            while (!(lineItems.Find(x => x.Op == Info.Operation.Mul) == null && lineItems.Find(x => x.Op == Info.Operation.Div) == null))
+                lineItems = CalculateStuf_div(lineItems);
+
+            while (!(lineItems.Find(x => x.Op == Info.Operation.Add) == null &&lineItems.Find(x => x.Op == Info.Operation.Sub) == null))
+                lineItems = CalculateStuf_add(lineItems);
+
+            UpdateTextBoxes(richTextBox_dec, $"\n{lineItems.Last().Number:D16}");
+            UpdateTextBoxes(richTextBox_hex, $"\n{lineItems.Last().Number:X16}");
         }
+
+        private List<Info.CalcItem> CalculateStuf_div(List<Info.CalcItem> lineItems)
+        {
+            var itemsToRemove = new List<int>();
+            ulong result = 0;
+
+            // if no more mul or div are found, return true;
+            if (lineItems.Find(x => x.Op == Info.Operation.Mul) == null && 
+                lineItems.Find(x => x.Op == Info.Operation.Div) == null)
+                return lineItems;
+
+            var firstOp = -1;
+            foreach (var a in lineItems)
+            {
+                if (a.Type != Info.ItemType.Operation)
+                    continue;
+
+                firstOp = a.ID - 1;
+                var n1 = lineItems[a.ID - 1];
+                var n2 = lineItems[a.ID + 1];
+
+                // remove op, operands
+                itemsToRemove.Add(a.ID);
+                itemsToRemove.Add(a.ID - 1);
+                itemsToRemove.Add(a.ID + 1);
+
+                switch (a.Op)
+                {
+                    case Info.Operation.Mul:
+                        result = n1.Number * n2.Number;
+                        break;
+                    case Info.Operation.Div:
+                        result = n1.Number / n2.Number;
+                        break;
+                }
+
+                goto ending;
+            }
+
+            ending:
+            // remove the operator and its operands that just got calculated
+            var newList = new List<Info.CalcItem>();
+            foreach (var a in lineItems)
+                if (!itemsToRemove.Contains(a.ID))
+                    newList.Add(a);
+
+            // Add back to the line items list, the result of the last mul or div
+            newList.Add(new Info.CalcItem
+            {
+                ID = firstOp,
+                Number = result,
+                Type = Info.ItemType.Integrals,
+
+            });
+
+            // make sure all line items are ordered and sequential
+            newList = newList.OrderBy(x => x.ID).ToList();
+            for (int i = 0; i < newList.Count; i++)
+                newList[i].ID = i;
+
+            lineItems = newList;
+
+            return lineItems;
+        }
+
+        private List<Info.CalcItem> CalculateStuf_add(List<Info.CalcItem> lineItems)
+        {
+            var itemsToRemove = new List<int>();
+            ulong result = 0;
+
+            // if no more mul or div are found, return true;
+            if (lineItems.Find(x => x.Op == Info.Operation.Add) == null && 
+                lineItems.Find(x => x.Op == Info.Operation.Sub) == null)
+                return lineItems;
+
+            var firstOp = -1;
+            foreach (var a in lineItems)
+            {
+                if (a.Type != Info.ItemType.Operation)
+                    continue;
+
+                firstOp = a.ID - 1;
+                var n1 = lineItems[a.ID - 1];
+                var n2 = lineItems[a.ID + 1];
+
+                // remove op, operands
+                itemsToRemove.Add(a.ID);
+                itemsToRemove.Add(a.ID - 1);
+                itemsToRemove.Add(a.ID + 1);
+
+                switch (a.Op)
+                {
+                    case Info.Operation.Add:
+                        result = n1.Number + n2.Number;
+                        break;
+                    case Info.Operation.Sub:
+                        result = n1.Number - n2.Number;
+                        break;
+                }
+
+                goto ending;
+            }
+
+        ending:
+            // remove the operator and its operands that just got calculated
+            var newList = new List<Info.CalcItem>();
+            foreach (var a in lineItems)
+                if (!itemsToRemove.Contains(a.ID))
+                    newList.Add(a);
+
+            // Add back to the line items list, the result of the last mul or div
+            if (firstOp == -1)
+                throw new Exception();
+            
+            newList.Add(new Info.CalcItem
+            {
+                ID = firstOp,
+                Number = result,
+                Type = Info.ItemType.Integrals,
+            });
+
+            // make sure all line items are ordered and sequential
+            newList = newList.OrderBy(x => x.ID).ToList();
+            for (int i = 0; i < newList.Count; i++)
+                newList[i].ID = i;
+
+            lineItems = newList;
+
+            return lineItems;
+        }
+
     }
 }
