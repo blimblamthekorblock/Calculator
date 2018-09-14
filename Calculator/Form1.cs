@@ -21,7 +21,9 @@ namespace Calculator
         {
             if (debugWriteConsole)
                 Console.WriteLine(input);
-            richTextBox_log.Text = $"{richTextBox_log.Text}\n{input}"; // just for logging
+
+            if (checkBox1.Checked)
+                richTextBox_log.Text = $"[{DateTime.Now.ToString("hh:mm:ss")}] {richTextBox_log.Text}\n{input}"; // just for logging
 
             CsvQueue1.Add(input); // used to dump logs to a text file
         }
@@ -78,7 +80,7 @@ namespace Calculator
 
         private void UpdateTextBoxes(RichTextBox richTextBox, string additional)
         {
-            richTextBox.Text = $"{richTextBox.Text}{additional}\n";
+            richTextBox.Text = $"{richTextBox.Text}[{DateTime.Now.ToString("hh:mm:ss")}] {additional}\n";
             richTextBox.SelectionStart = richTextBox.Text.Length;
             richTextBox.ScrollToCaret();
             richTextBox.ScrollToCaret();
@@ -119,6 +121,15 @@ namespace Calculator
             if (lineItems.Count == 0)
                 return textfile;
 
+            CheckLineItems(lineItems);
+
+            DoOperations(lineItems);
+
+            return textfile;
+        }
+
+        private void CheckLineItems(List<Info.CalcItem> lineItems)
+        {
             foreach (var a in lineItems)
             {
                 var output = $"Line Item: " +
@@ -130,10 +141,6 @@ namespace Calculator
 
                 Log(output);
             }
-
-            DoOperations(lineItems);
-
-            return textfile;
         }
 
         private List<Info.CalcItem> FindOpAndNumbers(string line, Info.BoxType boxType)
@@ -290,8 +297,8 @@ namespace Calculator
                     result = nr1 + nr2;
             }
 
-            UpdateTextBoxes(richTextBox_dec, $"\n{result:D16}");
-            UpdateTextBoxes(richTextBox_hex, $"\n{result:X16}");
+            UpdateTextBoxes(richTextBox_dec, $"{result:D16}");
+            UpdateTextBoxes(richTextBox_hex, $"{result:X16}");
         }
 
         private void DoOperations(List<Info.CalcItem> lineItems)
@@ -301,8 +308,8 @@ namespace Calculator
             {
                 foreach (var a in lineItems)
                 {
-                    UpdateTextBoxes(richTextBox_dec, $"\n{a.Number:D16}");
-                    UpdateTextBoxes(richTextBox_hex, $"\n{a.Number:X16}");
+                    UpdateTextBoxes(richTextBox_dec, $"{a.Number:D16}");
+                    UpdateTextBoxes(richTextBox_hex, $"{a.Number:X16}");
                 }
 
                 return;
@@ -339,17 +346,24 @@ namespace Calculator
 
 
             // keep looking for mul and div until no more are left
+            Log("Before any operations:");
+            CheckLineItems(lineItems);
             while (!(lineItems.Find(x => x.Op == Info.Operation.Mul) == null && lineItems.Find(x => x.Op == Info.Operation.Div) == null))
-                lineItems = CalculateStuf_div(lineItems);
+                lineItems = CalculateStuf_mul(lineItems);
 
-            while (!(lineItems.Find(x => x.Op == Info.Operation.Add) == null &&lineItems.Find(x => x.Op == Info.Operation.Sub) == null))
+            Log("After mul and div operations:");
+            CheckLineItems(lineItems);
+            while (!(lineItems.Find(x => x.Op == Info.Operation.Add) == null && lineItems.Find(x => x.Op == Info.Operation.Sub) == null))
                 lineItems = CalculateStuf_add(lineItems);
 
-            UpdateTextBoxes(richTextBox_dec, $"\n{lineItems.Last().Number:D16}");
-            UpdateTextBoxes(richTextBox_hex, $"\n{lineItems.Last().Number:X16}");
+            Log("After all operations:");
+            CheckLineItems(lineItems);
+
+            UpdateTextBoxes(richTextBox_dec, $"{lineItems.Last().Number:D16}");
+            UpdateTextBoxes(richTextBox_hex, $"{lineItems.Last().Number:X16}");
         }
 
-        private List<Info.CalcItem> CalculateStuf_div(List<Info.CalcItem> lineItems)
+        private List<Info.CalcItem> CalculateStuf_mul(List<Info.CalcItem> lineItems)
         {
             var itemsToRemove = new List<int>();
             ulong result = 0;
@@ -369,11 +383,6 @@ namespace Calculator
                 var n1 = lineItems[a.ID - 1];
                 var n2 = lineItems[a.ID + 1];
 
-                // remove op, operands
-                itemsToRemove.Add(a.ID);
-                itemsToRemove.Add(a.ID - 1);
-                itemsToRemove.Add(a.ID + 1);
-
                 switch (a.Op)
                 {
                     case Info.Operation.Mul:
@@ -382,12 +391,20 @@ namespace Calculator
                     case Info.Operation.Div:
                         result = n1.Number / n2.Number;
                         break;
+                    default:
+                        continue;
                 }
+
+                // remove op, operands
+                itemsToRemove.Add(a.ID);
+                itemsToRemove.Add(a.ID - 1);
+                itemsToRemove.Add(a.ID + 1);
 
                 goto ending;
             }
 
-            ending:
+        ending:
+
             // remove the operator and its operands that just got calculated
             var newList = new List<Info.CalcItem>();
             foreach (var a in lineItems)
@@ -395,6 +412,9 @@ namespace Calculator
                     newList.Add(a);
 
             // Add back to the line items list, the result of the last mul or div
+            if (firstOp == -1)
+                throw new Exception();
+
             newList.Add(new Info.CalcItem
             {
                 ID = firstOp,
@@ -433,11 +453,6 @@ namespace Calculator
                 var n1 = lineItems[a.ID - 1];
                 var n2 = lineItems[a.ID + 1];
 
-                // remove op, operands
-                itemsToRemove.Add(a.ID);
-                itemsToRemove.Add(a.ID - 1);
-                itemsToRemove.Add(a.ID + 1);
-
                 switch (a.Op)
                 {
                     case Info.Operation.Add:
@@ -446,12 +461,20 @@ namespace Calculator
                     case Info.Operation.Sub:
                         result = n1.Number - n2.Number;
                         break;
+                    default:
+                        continue;
                 }
+
+                // remove op, operands
+                itemsToRemove.Add(a.ID);
+                itemsToRemove.Add(a.ID - 1);
+                itemsToRemove.Add(a.ID + 1);
 
                 goto ending;
             }
 
         ending:
+
             // remove the operator and its operands that just got calculated
             var newList = new List<Info.CalcItem>();
             foreach (var a in lineItems)
